@@ -43,8 +43,7 @@ let buildDockerfile (source:string) =
             }
     }
     xPlotServiceDockerfile.Build()
-U
-        From ("mcr.microsoft.com/dotnet/sdk", Some "5.0.302", Some buildImage)
+
 // Create Container Registry
 let myAcr =
     containerRegistry {
