@@ -1,9 +1,9 @@
 #r "nuget: Farmer"
-#r "nuget: FSharp.Text.Docker, 1.0.5"
+#r "nuget: FSharp.Text.Docker, 1.0.6"
 
 open System
 open System.IO
-open FSharp.Text.Docker.Dockerfile
+open FSharp.Text.Docker.Builders
 open Farmer
 open Farmer.Builders
 
@@ -21,22 +21,30 @@ let buildDockerfile (source:string) =
     let encodedSource = source |> System.Text.Encoding.UTF8.GetBytes |> Convert.ToBase64String
     let appName = "MyApp"
     let buildImage = "builder"
-    [
-        // First the build image, using the SDK.
+    let xPlotServiceDockerfile = dockerfile {
+        let! builder = dockerfile {
+            from_stage "mcr.microsoft.com/dotnet/sdk:5.0.302" buildImage
+            run $"dotnet new console -lang F# -n {appName}"
+            workdir appName
+            run $"dotnet add package XPlot.Plotly"
+            run $"dotnet add package Suave"
+            run $"echo {encodedSource} | base64 -d > Program.fs"
+            run "dotnet build -c Release -o app"
+        }
+        yield! builder
+        match builder.Stage with
+        | None -> failwith "Missing builder stage."
+        | Some stageName ->
+            yield! dockerfile {
+                from "mcr.microsoft.com/dotnet/runtime:5.0.8"
+                expose 80
+                copy_from stageName $"/{appName}/app" "/app"
+                cmd $"dotnet /app/{appName}.dll"
+            }
+    }
+    xPlotServiceDockerfile.Build()
+U
         From ("mcr.microsoft.com/dotnet/sdk", Some "5.0.302", Some buildImage)
-        Run (ShellCommand $"dotnet new console -lang F# -n {appName}")
-        WorkDir appName
-        for package in [ "XPlot.Plotly"; "Suave" ] do
-            Run (ShellCommand $"dotnet add package {package}")
-        Run (ShellCommand $"echo {encodedSource} | base64 -d > Program.fs")
-        Run (ShellCommand "dotnet build -c Release -o app")
-        // Then the final image, which copies the app from the build image.
-        From ("mcr.microsoft.com/dotnet/runtime", Some "5.0.8", None)
-        Expose [80us]
-        Copy (Source.SingleSource $"/{appName}/app", "/app", Some(BuildStage.Name buildImage))
-        Cmd (ShellCommand $"dotnet /app/{appName}.dll")
-    ] |> buildDockerfile
-
 // Create Container Registry
 let myAcr =
     containerRegistry {
